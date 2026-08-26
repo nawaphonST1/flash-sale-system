@@ -1,5 +1,37 @@
 services:
   # ==========================================
+  # PostgreSQL Database
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: flash-sale-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: flash_sale_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # Redis (Cache, Lock, Queue)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: flash-sale-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
   # Nginx Load Balancer (Reverse Proxy)
   # ==========================================
   nginx-lb:
@@ -71,3 +103,7 @@ services:
 networks:
   flash-sale-net:
     driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

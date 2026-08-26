@@ -13,14 +13,13 @@ describe('AuthController', () => {
         {
           provide: AuthService,
           useValue: {
-            login: jest.fn().mockResolvedValue({
-              access_token: 'mock_jwt_token',
-              token_type: 'Bearer',
-              expires_in: '1h',
+            generateToken: jest.fn().mockReturnValue({
+              accessToken: 'mock_jwt_token',
+              tokenType: 'Bearer',
               user: {
-                userId: 'user_123',
+                userId: 'user-001',
                 username: 'tester',
-                role: 'customer',
+                role: 'CUSTOMER',
               },
             }),
           },
@@ -36,19 +35,12 @@ describe('AuthController', () => {
     expect(controller).toBeDefined();
   });
 
-  it('should call authService.login when /token is called', async () => {
-    const dto = { username: 'tester', password: 'password123' };
-    const response = await controller.issueToken(dto);
+  it('should call authService.generateToken when /token is called', () => {
+    const dto = { userId: 'user-001', username: 'tester' };
+    const response = controller.generateToken(dto);
 
-    expect(service.login).toHaveBeenCalledWith(dto);
-    expect(response).toHaveProperty('access_token', 'mock_jwt_token');
-  });
-
-  it('should return profile payload from current user', () => {
-    const mockUser = { userId: 'user_123', username: 'tester', role: 'customer' };
-    const result = controller.getProfile(mockUser);
-
-    expect(result).toHaveProperty('user', mockUser);
-    expect(result).toHaveProperty('message', 'Access granted to protected resource');
+    expect(service.generateToken).toHaveBeenCalledWith(dto);
+    expect(response).toHaveProperty('accessToken', 'mock_jwt_token');
+    expect(response).toHaveProperty('tokenType', 'Bearer');
   });
 });
