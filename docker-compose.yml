@@ -1,0 +1,73 @@
+services:
+  # ==========================================
+  # Nginx Load Balancer (Reverse Proxy)
+  # ==========================================
+  nginx-lb:
+    image: nginx:alpine
+    container_name: flash-sale-nginx-lb
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - auth-app-1
+      - auth-app-2
+      - auth-app-3
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # Backend Instance 1 (Auth & App)
+  # ==========================================
+  auth-app-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flash-sale-auth-app-1
+    environment:
+      - PORT=3000
+      - INSTANCE_ID=auth-instance-1
+      - JWT_SECRET=super_secret_flash_sale_key_2026_change_in_prod
+      - JWT_EXPIRES_IN=1h
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # Backend Instance 2 (Auth & App)
+  # ==========================================
+  auth-app-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flash-sale-auth-app-2
+    environment:
+      - PORT=3000
+      - INSTANCE_ID=auth-instance-2
+      - JWT_SECRET=super_secret_flash_sale_key_2026_change_in_prod
+      - JWT_EXPIRES_IN=1h
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # Backend Instance 3 (Auth & App)
+  # ==========================================
+  auth-app-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flash-sale-auth-app-3
+    environment:
+      - PORT=3000
+      - INSTANCE_ID=auth-instance-3
+      - JWT_SECRET=super_secret_flash_sale_key_2026_change_in_prod
+      - JWT_EXPIRES_IN=1h
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+networks:
+  flash-sale-net:
+    driver: bridge
