@@ -70,11 +70,8 @@ services:
       - DB_USERNAME=postgres
       - DB_PASSWORD=123456
       - DB_NAME=flash_sale_db
-      - REDIS_HOST=redis
+      - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
-    depends_on:
-      - postgres
-      - redis
     networks:
       - flash-sale-net
     restart: unless-stopped
@@ -100,11 +97,8 @@ services:
       - DB_USERNAME=postgres
       - DB_PASSWORD=123456
       - DB_NAME=flash_sale_db
-      - REDIS_HOST=redis
+      - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
-    depends_on:
-      - postgres
-      - redis
     networks:
       - flash-sale-net
     restart: unless-stopped
@@ -130,11 +124,8 @@ services:
       - DB_USERNAME=postgres
       - DB_PASSWORD=123456
       - DB_NAME=flash_sale_db
-      - REDIS_HOST=redis
+      - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
-    depends_on:
-      - postgres
-      - redis
     networks:
       - flash-sale-net
     restart: unless-stopped
