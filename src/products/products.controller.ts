@@ -1,14 +1,17 @@
-import { Controller, Get, Param } from '@nestjs/common';
-import { ProductsService } from './products.service';
+import { Controller, Get, Param, Query } from '@nestjs/common';
+import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { Product } from './entities/product.entity';
+import { PaginatedProductsResponse, ProductsService } from './products.service';
 
-@Controller('api/v1/product')
+@Controller(['api/v1/products', 'api/v1/product'])
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  async findAll(): Promise<Product[]> {
-    return this.productsService.findAll();
+  async findAll(@Query() query: PaginationQueryDto): Promise<PaginatedProductsResponse> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    return this.productsService.findAllPaginated(page, limit);
   }
 
   @Get(':id')
@@ -16,3 +19,4 @@ export class ProductsController {
     return this.productsService.findOne(id);
   }
 }
+

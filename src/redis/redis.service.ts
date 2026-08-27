@@ -93,4 +93,82 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       return null;
     }
   }
+
+
+  /**
+   * Generic get cache
+   */
+  async get(key: string): Promise<string | null> {
+    try {
+      return await this.client.get(key);
+    } catch (err: any) {
+      this.logger.error(`Failed to get key '${key}' from Redis: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Generic set cache with optional TTL in seconds
+   */
+  async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    try {
+      if (ttlSeconds) {
+        await this.client.set(key, value, 'EX', ttlSeconds);
+      } else {
+        await this.client.set(key, value);
+      }
+    } catch (err: any) {
+      this.logger.error(`Failed to set key '${key}' in Redis: ${err.message}`);
+    }
+  }
+
+  /**
+   * Generic del cache
+   */
+  async del(key: string): Promise<void> {
+    try {
+      await this.client.del(key);
+    } catch (err: any) {
+      this.logger.error(`Failed to delete key '${key}' from Redis: ${err.message}`);
+    }
+  }
+
+  /**
+   * Delete keys matching a pattern using SCAN stream and UNLINK (Non-blocking)
+   */
+  async delByPattern(pattern: string): Promise<void> {
+    try {
+      const stream = this.client.scanStream({
+        match: pattern,
+        count: 100,
+      });
+
+      return new Promise<void>((resolve, reject) => {
+        stream.on('data', async (keys: string[]) => {
+          if (keys && keys.length > 0) {
+            stream.pause();
+            try {
+              await this.client.unlink(...keys);
+            } catch (err: any) {
+              this.logger.error(`Error unlinking keys in pattern '${pattern}': ${err.message}`);
+            } finally {
+              stream.resume();
+            }
+          }
+        });
+
+        stream.on('end', () => {
+          resolve();
+        });
+
+        stream.on('error', (err) => {
+          this.logger.error(`SCAN stream error for pattern '${pattern}': ${err.message}`);
+          reject(err);
+        });
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to delete pattern '${pattern}' from Redis: ${err.message}`);
+    }
+  }
 }
+

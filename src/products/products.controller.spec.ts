@@ -9,7 +9,28 @@ const mockProduct: Product = {
   description: 'รองเท้ารุ่นลิมิเต็ด',
   price: 2990,
   availableStock: 50,
+  remainingStock: 30,
   isFlashSaleActive: true,
+};
+
+const mockPaginatedResponse = {
+  status: 'success',
+  data: [
+    {
+      productId: 'p-1001',
+      name: 'Limited Edition Sneaker',
+      price: 2990,
+      availableStock: 50,
+      remainingStock: 30,
+      isFlashSaleActive: true,
+    },
+  ],
+  meta: {
+    total: 1,
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+  },
 };
 
 describe('ProductsController', () => {
@@ -18,7 +39,7 @@ describe('ProductsController', () => {
 
   beforeEach(async () => {
     const mockProductsService = {
-      findAll: jest.fn().mockResolvedValue([mockProduct]),
+      findAllPaginated: jest.fn().mockResolvedValue(mockPaginatedResponse),
       findOne: jest.fn().mockResolvedValue(mockProduct),
     };
 
@@ -40,10 +61,11 @@ describe('ProductsController', () => {
     expect(controller).toBeDefined();
   });
 
-  it('should return all products', async () => {
-    const result = await controller.findAll();
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBe(1);
+  it('should return paginated products', async () => {
+    const result = await controller.findAll({ page: 1, limit: 10 });
+    expect(result.status).toBe('success');
+    expect(result.data.length).toBe(1);
+    expect(result.meta.page).toBe(1);
   });
 
   it('should return a product by ID', async () => {
@@ -51,3 +73,4 @@ describe('ProductsController', () => {
     expect(result.productId).toBe('p-1001');
   });
 });
+

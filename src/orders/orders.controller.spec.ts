@@ -49,6 +49,21 @@ describe('OrdersController', () => {
     expect(result.orderJobId).toBe('job_123');
   });
 
+  it('should pass idempotency key to service when provided', async () => {
+    const result = await controller.createOrder(
+      'user-001',
+      { productId: 'p-1001' },
+      'idem-key-123',
+    );
+
+    expect(service.createOrder).toHaveBeenCalledWith(
+      'user-001',
+      { productId: 'p-1001' },
+      'idem-key-123',
+    );
+    expect(result.status).toBe('PENDING');
+  });
+
   it('should get order status', async () => {
     const result = await controller.getOrderStatus('job_123');
 

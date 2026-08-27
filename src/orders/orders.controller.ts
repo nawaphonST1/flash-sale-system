@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -19,7 +20,7 @@ export class OrdersController {
 
   /**
    * POST /api/v1/orders
-   * Receives order request, validates JWT, checks Redis atomic lock,
+   * Receives order request, validates JWT, checks Idempotency Key & Redis atomic lock,
    * enqueues job into BullMQ, and returns 202 Accepted immediately.
    */
   @Post()
@@ -28,7 +29,13 @@ export class OrdersController {
   async createOrder(
     @CurrentUser('userId') userId: string,
     @Body() dto: CreateOrderDto,
+    @Headers('idempotency-key') idempotencyKeyHeader?: string,
+    @Headers('x-idempotency-key') xIdempotencyKeyHeader?: string,
   ) {
+    const idempotencyKey = idempotencyKeyHeader || xIdempotencyKeyHeader;
+    if (idempotencyKey) {
+      return this.ordersService.createOrder(userId, dto, idempotencyKey);
+    }
     return this.ordersService.createOrder(userId, dto);
   }
 
