@@ -20,7 +20,7 @@ services:
   # ==========================================
   # Redis (Cache, Lock, Queue)
   # ==========================================
-  redis:
+  flash-sale-redis:
     image: redis:7-alpine
     container_name: flash-sale-redis
     ports:
@@ -57,11 +57,14 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: flash-sale-auth-app-1
+    depends_on:
+      - postgres
+      - flash-sale-redis
     environment:
       - PORT=3000
       - INSTANCE_ID=auth-instance-1
       - JWT_SECRET=super_secret_flash_sale_key_2026_change_in_prod
-      - JWT_EXPIRES_IN=1h
+      - JWT_EXPIRES_IN=1d
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=postgres
@@ -84,11 +87,14 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: flash-sale-auth-app-2
+    depends_on:
+      - postgres
+      - flash-sale-redis
     environment:
       - PORT=3000
       - INSTANCE_ID=auth-instance-2
       - JWT_SECRET=super_secret_flash_sale_key_2026_change_in_prod
-      - JWT_EXPIRES_IN=1h
+      - JWT_EXPIRES_IN=1d
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=postgres
@@ -111,6 +117,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: flash-sale-auth-app-3
+    depends_on:
+      - postgres
+      - flash-sale-redis
     environment:
       - PORT=3000
       - INSTANCE_ID=auth-instance-3

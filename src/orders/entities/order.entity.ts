@@ -3,6 +3,7 @@ import {
   CreateDateColumn,
   Entity,
   PrimaryColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 
@@ -13,6 +14,7 @@ export enum OrderStatus {
 }
 
 @Entity('orders')
+@Unique('UQ_user_product_order', ['userId', 'productId'])
 export class Order {
   @PrimaryColumn()
   orderId!: string;

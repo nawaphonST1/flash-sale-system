@@ -39,6 +39,13 @@ import { RedisModule } from './redis/redis.module';
         database: configService.get<string>('DB_NAME', 'flash_sale_db'),
         entities: [Product, Order],
         synchronize: true, // Auto-create tables in development
+        // Database Connection Pooling Options (Prevents Connection Exhaustion)
+        extra: {
+          max: 10, // Max connections per backend instance (3 instances = 30 max connections)
+          min: 2, // Keep 2 minimum connections alive
+          idleTimeoutMillis: 30000, // Close idle connections after 30s
+          connectionTimeoutMillis: 5000, // Connection timeout after 5s
+        },
       }),
     }),
 

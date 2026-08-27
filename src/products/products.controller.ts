@@ -3,7 +3,7 @@ import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { Product } from './entities/product.entity';
 import { PaginatedProductsResponse, ProductsService } from './products.service';
 
-@Controller(['api/v1/products', 'api/v1/product'])
+@Controller('api/v1/products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
