@@ -48,10 +48,19 @@ export class OrdersService {
       );
     }
 
-    // 3. Generate unique order job ID
+    // 3. Fast-path: Atomic Stock Check & Decrement via Redis Lua Script
+    // If stock is depleted, reject immediately without burdening BullMQ or PostgreSQL
+    const remainingStock = await this.redisService.decrementProductStockAtomic(productId);
+    if (remainingStock === -1) {
+      // Release lock so user is not stuck on a failed attempt
+      await this.redisService.releaseUserProductLock(userId, productId);
+      throw new ConflictException(`Product '${productId}' is out of stock.`);
+    }
+
+    // 4. Generate unique order job ID
     const orderJobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    // 4. Set initial status in Redis
+    // 5. Set initial status in Redis
     await this.redisService.setJobStatus(orderJobId, {
       orderJobId,
       userId,

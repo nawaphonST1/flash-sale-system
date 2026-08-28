@@ -6,9 +6,9 @@ services:
     image: postgres:16-alpine
     container_name: flash-sale-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: flash_sale_db
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-flash_sale_db}
     ports:
       - "5433:5432"
     volumes:
@@ -23,6 +23,7 @@ services:
   flash-sale-redis:
     image: redis:7-alpine
     container_name: flash-sale-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
@@ -63,13 +64,13 @@ services:
     environment:
       - PORT=3000
       - INSTANCE_ID=auth-instance-1
-      - JWT_SECRET=super_secret_flash_sale_key_2026_change_in_prod
-      - JWT_EXPIRES_IN=1d
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_USERNAME=postgres
-      - DB_PASSWORD=123456
-      - DB_NAME=flash_sale_db
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
     networks:
@@ -90,13 +91,13 @@ services:
     environment:
       - PORT=3000
       - INSTANCE_ID=auth-instance-2
-      - JWT_SECRET=super_secret_flash_sale_key_2026_change_in_prod
-      - JWT_EXPIRES_IN=1d
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_USERNAME=postgres
-      - DB_PASSWORD=123456
-      - DB_NAME=flash_sale_db
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
     networks:
@@ -117,13 +118,13 @@ services:
     environment:
       - PORT=3000
       - INSTANCE_ID=auth-instance-3
-      - JWT_SECRET=super_secret_flash_sale_key_2026_change_in_prod
-      - JWT_EXPIRES_IN=1h
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_USERNAME=postgres
-      - DB_PASSWORD=123456
-      - DB_NAME=flash_sale_db
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
     networks:

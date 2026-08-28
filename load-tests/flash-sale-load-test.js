@@ -16,27 +16,50 @@ const TARGET_PRODUCT_ID = __ENV.PRODUCT_ID || 'p-1001';
 
 export const options = {
   scenarios: {
-    // 1. Read Load Scenario: 1,000 Concurrent VUs querying products
+    // 1. Read Load Scenario: Step testing from 100 -> 200 -> 400 -> 600 -> 800 -> 1000 VUs
     read_load_scenario: {
-      executor: 'constant-vus',
-      vus: 1000,
-      duration: '30s',
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: '10s', target: 100 },  // Step 1: 100 VUs
+        { duration: '10s', target: 200 },  // Step 2: 200 VUs
+        { duration: '10s', target: 400 },  // Step 3: 400 VUs
+        { duration: '10s', target: 600 },  // Step 4: 600 VUs
+        { duration: '10s', target: 800 },  // Step 5: 800 VUs
+        { duration: '10s', target: 1000 }, // Step 6: 1000 VUs
+        { duration: '5s', target: 0 },     // Cool-down
+      ],
       startTime: '0s',
       exec: 'readProductsLoad',
     },
     // 2. Write Load Scenario: 500 Concurrent VUs competing for limited stock
     write_load_scenario: {
-      executor: 'per-vu-iterations',
-      vus: 500,
-      iterations: 1,
-      maxDuration: '1m',
-      startTime: '35s', // Run after read load or warm-up
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: '3s', target: 500 },  // Smooth ramp-up to 500 VUs in 3s
+        { duration: '15s', target: 500 }, // Sustain 500 VUs
+        { duration: '2s', target: 0 },    // Ramp-down
+      ],
+      startTime: '70s', // Run after step read load completes (65s total)
       exec: 'writeOrdersLoad',
     },
   },
   thresholds: {
-    http_req_failed: ['rate<0.1'], // Global HTTP failure rate < 10%
-    http_req_duration: ['p(95)<1500'], // 95% of requests should be below 1500ms
+    // 1. HTTP Failure Rate: Allows expected business rejections (400/409) while alerting if unexpected failures exceed 20%
+    http_req_failed: ['rate<0.20'],
+
+    // 2. Global Latency: 95% of all requests should be under 800ms
+    http_req_duration: ['p(95)<800'],
+
+    // 3. Success Response Latency: 95% of successful requests should be under 150ms
+    'http_req_duration{expected_response:true}': ['p(95)<150'],
+
+    // 4. Order System Error Rate: Unexpected system errors (5xx/crashes) must be < 1%
+    orders_error_rate: ['rate<0.01'],
+
+    // 5. Business Logic Checks: At least 99% of all validation checks must pass
+    checks: ['rate>0.99'],
   },
 };
 
@@ -104,7 +127,7 @@ export function readProductsLoad() {
       'response has items': (r) => {
         try {
           const body = JSON.parse(r.body);
-          return (body.items && body.items.length >= 0) || Array.isArray(body);
+          return (body.data && Array.isArray(body.data)) || (body.items && body.items.length >= 0) || Array.isArray(body);
         } catch (_) {
           return false;
         }

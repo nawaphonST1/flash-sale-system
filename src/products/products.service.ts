@@ -65,7 +65,12 @@ export class ProductsService implements OnModuleInit {
         await this.productRepository.save(entities);
         this.logger.log(`Successfully seeded ${entities.length} products to database.`);
       }
+    }
 
+    // Sync available products stock into Redis for fast atomic Lua checks
+    const allProducts = await this.productRepository.find();
+    for (const p of allProducts) {
+      await this.redisService.initProductStock(p.productId, p.availableStock);
     }
   }
 

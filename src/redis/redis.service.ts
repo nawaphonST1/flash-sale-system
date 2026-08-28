@@ -170,5 +170,47 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to delete pattern '${pattern}' from Redis: ${err.message}`);
     }
   }
+
+  /**
+   * Initialize product stock in Redis if not already set
+   */
+  async initProductStock(productId: string, initialStock: number): Promise<void> {
+    const key = `stock:${productId}`;
+    try {
+      await this.client.setnx(key, initialStock.toString());
+    } catch (err: any) {
+      this.logger.error(`Failed to init stock for product ${productId}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Atomic Stock Decrement via Redis Lua Script
+   * Returns:
+   *  >= 0: Remaining stock after decrement (Success)
+   *  -1: Out of stock (Remaining was 0 or less)
+   *  -2: Stock key not initialized
+   */
+  async decrementProductStockAtomic(productId: string): Promise<number> {
+    const key = `stock:${productId}`;
+    const luaScript = `
+      local stock = redis.call('GET', KEYS[1])
+      if not stock then
+        return -2
+      end
+      local stockNum = tonumber(stock)
+      if stockNum <= 0 then
+        return -1
+      end
+      return redis.call('DECRBY', KEYS[1], 1)
+    `;
+
+    try {
+      const result = (await this.client.eval(luaScript, 1, key)) as number;
+      return result;
+    } catch (err: any) {
+      this.logger.error(`Failed executing Lua script for stock decrement on ${productId}: ${err.message}`);
+      throw err;
+    }
+  }
 }
 
