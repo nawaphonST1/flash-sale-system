@@ -20,6 +20,7 @@ describe('OrdersService', () => {
       releaseUserProductLock: jest.fn().mockResolvedValue(undefined),
       setJobStatus: jest.fn().mockResolvedValue(undefined),
       getJobStatus: jest.fn().mockResolvedValue(null),
+      decrementProductStockAtomic: jest.fn().mockResolvedValue(49),
     };
 
     const module: TestingModule = await Test.createTestingModule({

@@ -26,17 +26,47 @@ import { RedisModule } from './redis/redis.module';
       },
     }),
 
-    // PostgreSQL TypeORM Configuration
+    // PostgreSQL TypeORM Configuration with Master/Replica Replication
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
-        host: configService.get<string>('DB_HOST', 'localhost'),
-        port: Number(configService.get<number>('DB_PORT', 5432)),
-        username: configService.get<string>('DB_USERNAME', 'postgres'),
-        password: configService.get<string>('DB_PASSWORD', 'postgrespassword'),
-        database: configService.get<string>('DB_NAME', 'flash_sale_db'),
+        replication: {
+          master: {
+            host: configService.get<string>('DB_HOST', 'localhost'),
+            port: Number(configService.get<number>('DB_PORT', 5433)),
+            username: configService.get<string>('DB_USERNAME', 'postgres'),
+            password: configService.get<string>('DB_PASSWORD', 'postgrespassword'),
+            database: configService.get<string>('DB_NAME', 'flash_sale_db'),
+          },
+          slaves: [
+            {
+              host: configService.get<string>(
+                'DB_REPLICA_HOST',
+                configService.get<string>('DB_HOST', 'localhost'),
+              ),
+              port: Number(
+                configService.get<number>(
+                  'DB_REPLICA_PORT',
+                  configService.get<number>('DB_PORT', 5433),
+                ),
+              ),
+              username: configService.get<string>(
+                'DB_REPLICA_USERNAME',
+                configService.get<string>('DB_USERNAME', 'postgres'),
+              ),
+              password: configService.get<string>(
+                'DB_REPLICA_PASSWORD',
+                configService.get<string>('DB_PASSWORD', 'postgrespassword'),
+              ),
+              database: configService.get<string>(
+                'DB_REPLICA_NAME',
+                configService.get<string>('DB_NAME', 'flash_sale_db'),
+              ),
+            },
+          ],
+        },
         entities: [Product, Order],
         synchronize: true, // Auto-create tables in development
         // Database Connection Pooling Options (Prevents Connection Exhaustion)

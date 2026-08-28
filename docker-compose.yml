@@ -1,6 +1,6 @@
 services:
   # ==========================================
-  # PostgreSQL Database
+  # PostgreSQL Primary Database (Master)
   # ==========================================
   postgres:
     image: postgres:16-alpine
@@ -13,6 +13,24 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # PostgreSQL Read Replica (Slave)
+  # ==========================================
+  postgres-replica:
+    image: postgres:16-alpine
+    container_name: flash-sale-postgres-replica
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-flash_sale_db}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
     networks:
       - flash-sale-net
     restart: unless-stopped
@@ -60,6 +78,7 @@ services:
     container_name: flash-sale-auth-app-1
     depends_on:
       - postgres
+      - postgres-replica
       - flash-sale-redis
     environment:
       - PORT=3000
@@ -71,6 +90,11 @@ services:
       - DB_USERNAME=${DB_USERNAME:-postgres}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME:-flash_sale_db}
+      - DB_REPLICA_HOST=postgres-replica
+      - DB_REPLICA_PORT=5432
+      - DB_REPLICA_USERNAME=${DB_USERNAME:-postgres}
+      - DB_REPLICA_PASSWORD=${DB_PASSWORD}
+      - DB_REPLICA_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
     networks:
@@ -87,6 +111,7 @@ services:
     container_name: flash-sale-auth-app-2
     depends_on:
       - postgres
+      - postgres-replica
       - flash-sale-redis
     environment:
       - PORT=3000
@@ -98,6 +123,11 @@ services:
       - DB_USERNAME=${DB_USERNAME:-postgres}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME:-flash_sale_db}
+      - DB_REPLICA_HOST=postgres-replica
+      - DB_REPLICA_PORT=5432
+      - DB_REPLICA_USERNAME=${DB_USERNAME:-postgres}
+      - DB_REPLICA_PASSWORD=${DB_PASSWORD}
+      - DB_REPLICA_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
     networks:
@@ -114,6 +144,7 @@ services:
     container_name: flash-sale-auth-app-3
     depends_on:
       - postgres
+      - postgres-replica
       - flash-sale-redis
     environment:
       - PORT=3000
@@ -125,6 +156,11 @@ services:
       - DB_USERNAME=${DB_USERNAME:-postgres}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME:-flash_sale_db}
+      - DB_REPLICA_HOST=postgres-replica
+      - DB_REPLICA_PORT=5432
+      - DB_REPLICA_USERNAME=${DB_USERNAME:-postgres}
+      - DB_REPLICA_PASSWORD=${DB_PASSWORD}
+      - DB_REPLICA_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
     networks:
@@ -169,6 +205,7 @@ networks:
 
 volumes:
   postgres_data:
+  postgres_replica_data:
   redis_data:
   prometheus_data:
   grafana_data:
