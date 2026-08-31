@@ -134,38 +134,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Delete keys matching a pattern using SCAN stream and UNLINK (Non-blocking)
+   * Delete keys matching a pattern using UNLINK (Instant & reliable)
    */
   async delByPattern(pattern: string): Promise<void> {
     try {
-      const stream = this.client.scanStream({
-        match: pattern,
-        count: 100,
-      });
-
-      return new Promise<void>((resolve, reject) => {
-        stream.on('data', async (keys: string[]) => {
-          if (keys && keys.length > 0) {
-            stream.pause();
-            try {
-              await this.client.unlink(...keys);
-            } catch (err: any) {
-              this.logger.error(`Error unlinking keys in pattern '${pattern}': ${err.message}`);
-            } finally {
-              stream.resume();
-            }
-          }
-        });
-
-        stream.on('end', () => {
-          resolve();
-        });
-
-        stream.on('error', (err) => {
-          this.logger.error(`SCAN stream error for pattern '${pattern}': ${err.message}`);
-          reject(err);
-        });
-      });
+      const keys = await this.client.keys(pattern);
+      if (keys && keys.length > 0) {
+        await this.client.unlink(...keys);
+      }
     } catch (err: any) {
       this.logger.error(`Failed to delete pattern '${pattern}' from Redis: ${err.message}`);
     }

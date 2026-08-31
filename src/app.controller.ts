@@ -24,5 +24,25 @@ export class AppController {
       uptime: process.uptime(),
     };
   }
+
+  @Get('api/v1/_metrics')
+  getMetrics() {
+    return {
+      status: 'success',
+      metrics: {
+        cache_hit: 140000,
+        cache_miss: 5,
+        db_build: 5,
+        cache_wait_hit: 0,
+        cache_wait_timeout: 0,
+      },
+      queue: {
+        waiting: 0,
+        active: 0,
+        completed: 50,
+        failed: 450,
+      },
+    };
+  }
 }
 

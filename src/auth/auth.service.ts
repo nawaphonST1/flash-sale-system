@@ -16,6 +16,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
 
     return {
+      status: 'success',
       accessToken,
       tokenType: 'Bearer',
       user: payload,

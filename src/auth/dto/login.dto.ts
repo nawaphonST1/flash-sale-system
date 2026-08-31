@@ -13,7 +13,7 @@ export class LoginDto {
 
   @IsString({ message: 'password must be a string' })
   @IsNotEmpty({ message: 'password is required' })
-  password: string;
+  password?: string;
 
   @IsString({ message: 'role must be a string' })
   @IsOptional()

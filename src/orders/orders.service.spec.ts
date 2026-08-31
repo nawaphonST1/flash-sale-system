@@ -49,7 +49,7 @@ describe('OrdersService', () => {
 
     expect(mockRedisService.acquireUserProductLock).toHaveBeenCalledWith('user-1', 'p-1001', 600);
     expect(mockQueue.add).toHaveBeenCalled();
-    expect(result.status).toBe('PENDING');
+    expect(result.status).toBe('processing');
     expect(result.orderJobId).toBeDefined();
   });
 

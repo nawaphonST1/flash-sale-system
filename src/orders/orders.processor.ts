@@ -70,9 +70,11 @@ export class OrdersProcessor extends WorkerHost {
       product.remainingStock = Math.max(0, (product.remainingStock ?? product.availableStock + 1) - 1);
       await queryRunner.manager.save(Product, product);
 
-      // Invalidate products cache (both pagination and single product item) asynchronously
-      this.redisService.delByPattern('products:page:*').catch(() => {});
-      this.redisService.del(`product:${productId}`).catch(() => {});
+      // Invalidate products cache (both pagination and single product item)
+      await Promise.all([
+        this.redisService.delByPattern('products:page:*'),
+        this.redisService.del(`product:${productId}`),
+      ]);
 
       // 4. Create confirmed order record
       const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;

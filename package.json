@@ -21,7 +21,8 @@
         "typeorm": "typeorm-ts-node-commonjs -d src/data-source.ts",
         "migration:generate": "npm run typeorm migration:generate",
         "migration:run": "npm run typeorm migration:run",
-        "migration:revert": "npm run typeorm migration:revert"
+        "migration:revert": "npm run typeorm migration:revert",
+        "test:reset": "node load-tests/reset.js"
     },
     "dependencies": {
         "@nestjs/bullmq": "^11.0.5",

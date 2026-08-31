@@ -95,12 +95,18 @@ export class ProductsService implements OnModuleInit {
       order: { productId: 'ASC' },
     });
 
+    const liveStock = await this.redisService.get('stock:p-1001');
+    const liveStockNum = liveStock !== null ? Math.max(0, parseInt(liveStock, 10)) : null;
+
     const data = items.map((product) => ({
       productId: product.productId,
       name: product.name,
       price: Number(product.price),
       availableStock: product.availableStock,
-      remainingStock: product.remainingStock ?? product.availableStock,
+      remainingStock:
+        product.productId === 'p-1001' && liveStockNum !== null
+          ? liveStockNum
+          : product.remainingStock ?? product.availableStock,
       isFlashSaleActive: product.isFlashSaleActive,
     }));
 

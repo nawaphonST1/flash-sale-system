@@ -31,44 +31,30 @@ export class OrdersService {
       const existingResponse = await this.redisService.get(`idempotency:${userId}:${idempotencyKey}`);
       if (existingResponse) {
         try {
-          this.logger.log(`Idempotent request detected for user ${userId} with key ${idempotencyKey}. Returning cached response.`);
           return JSON.parse(existingResponse);
-        } catch (err: any) {
-          this.logger.warn(`Failed to parse cached idempotency response: ${err.message}`);
-        }
+        } catch {}
       }
     }
 
     // 2. Atomic Redis Lock to prevent duplicate requests and enforce 1 order per user per product
     const acquired = await this.redisService.acquireUserProductLock(userId, productId, 600);
     if (!acquired) {
-      this.logger.warn(`Duplicate or concurrent order rejected for user ${userId} on product ${productId}`);
       throw new ConflictException(
         `You have already submitted an order or have an active order for product '${productId}'. (Limit 1 per user)`,
       );
     }
 
     // 3. Fast-path: Atomic Stock Check & Decrement via Redis Lua Script
-    // If stock is depleted, reject immediately without burdening BullMQ or PostgreSQL
+    // If stock is depleted (returns -1 or -2), reject immediately without burdening BullMQ or PostgreSQL
     const remainingStock = await this.redisService.decrementProductStockAtomic(productId);
-    if (remainingStock === -1) {
+    if (remainingStock < 0) {
       // Release lock so user is not stuck on a failed attempt
       await this.redisService.releaseUserProductLock(userId, productId);
-      throw new ConflictException(`Product '${productId}' is out of stock.`);
+      throw new ConflictException('Product sold out');
     }
 
     // 4. Generate unique order job ID
     const orderJobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-    // 5. Set initial status in Redis
-    await this.redisService.setJobStatus(orderJobId, {
-      orderJobId,
-      userId,
-      productId,
-      status: 'PENDING',
-      message: 'Order request is queued for processing',
-      createdAt: new Date().toISOString(),
-    });
 
     // 5. Push job into BullMQ queue (Non-blocking Asynchronous processing)
     await this.orderQueue.add(
@@ -85,12 +71,22 @@ export class OrdersService {
       },
     );
 
-    this.logger.log(`Enqueued order job ${orderJobId} for user ${userId}, product ${productId}`);
+    // Set initial status in Redis in background (non-blocking)
+    this.redisService
+      .setJobStatus(orderJobId, {
+        orderJobId,
+        userId,
+        productId,
+        status: 'PENDING',
+        message: 'Order request is queued for processing',
+        createdAt: new Date().toISOString(),
+      })
+      .catch(() => {});
 
     const responsePayload = {
-      status: 'PENDING',
+      status: 'processing',
       orderJobId,
-      message: 'Order request accepted and queued for processing',
+      message: 'Your order is in the queue.',
     };
 
     // 6. Save Idempotency response in Redis (TTL 24 hours)

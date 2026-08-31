@@ -26,47 +26,17 @@ import { RedisModule } from './redis/redis.module';
       },
     }),
 
-    // PostgreSQL TypeORM Configuration with Master/Replica Replication
+    // PostgreSQL TypeORM Configuration with Connection Pooling
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
-        replication: {
-          master: {
-            host: configService.get<string>('DB_HOST', 'localhost'),
-            port: Number(configService.get<number>('DB_PORT', 5433)),
-            username: configService.get<string>('DB_USERNAME', 'postgres'),
-            password: configService.get<string>('DB_PASSWORD', 'postgrespassword'),
-            database: configService.get<string>('DB_NAME', 'flash_sale_db'),
-          },
-          slaves: [
-            {
-              host: configService.get<string>(
-                'DB_REPLICA_HOST',
-                configService.get<string>('DB_HOST', 'localhost'),
-              ),
-              port: Number(
-                configService.get<number>(
-                  'DB_REPLICA_PORT',
-                  configService.get<number>('DB_PORT', 5433),
-                ),
-              ),
-              username: configService.get<string>(
-                'DB_REPLICA_USERNAME',
-                configService.get<string>('DB_USERNAME', 'postgres'),
-              ),
-              password: configService.get<string>(
-                'DB_REPLICA_PASSWORD',
-                configService.get<string>('DB_PASSWORD', 'postgrespassword'),
-              ),
-              database: configService.get<string>(
-                'DB_REPLICA_NAME',
-                configService.get<string>('DB_NAME', 'flash_sale_db'),
-              ),
-            },
-          ],
-        },
+        host: configService.get<string>('DB_HOST', 'localhost'),
+        port: Number(configService.get<number>('DB_PORT', 5433)),
+        username: configService.get<string>('DB_USERNAME', 'postgres'),
+        password: configService.get<string>('DB_PASSWORD', 'postgrespassword'),
+        database: configService.get<string>('DB_NAME', 'flash_sale_db'),
         entities: [Product, Order],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         migrationsRun: true, // Auto-run migrations on startup
