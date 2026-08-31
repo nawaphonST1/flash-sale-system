@@ -68,7 +68,9 @@ import { RedisModule } from './redis/redis.module';
           ],
         },
         entities: [Product, Order],
-        synchronize: true, // Auto-create tables in development
+        migrations: [__dirname + '/migrations/*{.ts,.js}'],
+        migrationsRun: true, // Auto-run migrations on startup
+        synchronize: false, // Safe for multi-instance and production
         // Database Connection Pooling Options (Prevents Connection Exhaustion)
         extra: {
           max: 10, // Max connections per backend instance (3 instances = 30 max connections)
