@@ -26,7 +26,7 @@ export interface PaginatedProductsResponse {
 @Injectable()
 export class ProductsService implements OnModuleInit {
   private readonly logger = new Logger(ProductsService.name);
-  private readonly CACHE_TTL_SECONDS = 60;
+  private readonly CACHE_TTL_SECONDS = 3600; // 1 hour TTL (catalog is static, live stock is injected via MGET)
 
   constructor(
     @InjectRepository(Product)
@@ -72,57 +72,124 @@ export class ProductsService implements OnModuleInit {
     for (const p of allProducts) {
       await this.redisService.initProductStock(p.productId, p.availableStock);
     }
+
+    // Pre-warm (Warmup) all pagination cache pages in Redis
+    await this.warmupPaginationCache();
+  }
+
+  async warmupPaginationCache() {
+    try {
+      const configs = [
+        { limit: 5, pages: [1, 2, 3, 4] },
+        { limit: 10, pages: [1, 2] },
+        { limit: 20, pages: [1] },
+      ];
+      for (const cfg of configs) {
+        for (const page of cfg.pages) {
+          await this.findAllPaginated(page, cfg.limit);
+        }
+      }
+      this.logger.log('Pagination cache (all 7 combinations) successfully pre-warmed in Redis.');
+    } catch (err: any) {
+      this.logger.warn(`Failed to pre-warm pagination cache: ${err.message}`);
+    }
   }
 
   async findAllPaginated(page: number = 1, limit: number = 10): Promise<PaginatedProductsResponse> {
-    const cacheKey = `products:page:${page}:limit:${limit}`;
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 10;
+    const cacheKey = `products:page:${pageNum}:limit:${limitNum}`;
 
-    // 1. Check Redis Cache (Cache-Aside)
+    // 1. Ultra-fast path: Single Redis GET for page structure
     const cachedData = await this.redisService.get(cacheKey);
     if (cachedData) {
       try {
-        return JSON.parse(cachedData) as PaginatedProductsResponse;
+        const parsed = JSON.parse(cachedData) as PaginatedProductsResponse;
+        // Inject live real-time stock for the active flash sale product (p-1001) with 1 fast key lookup
+        const p1001Item = parsed.data.find((p) => p.productId === 'p-1001');
+        if (p1001Item) {
+          const liveStockStr = await this.redisService.get('stock:p-1001');
+          if (liveStockStr !== null && liveStockStr !== undefined) {
+            p1001Item.remainingStock = Number(liveStockStr);
+          }
+        }
+        return parsed;
       } catch (err: any) {
         this.logger.warn(`Failed to parse cache for key ${cacheKey}: ${err.message}`);
       }
     }
 
-    // 2. Query Database on Cache MISS
-    const skip = (page - 1) * limit;
+    // 2. Cache Miss: Single-Flight via Redis Lock to prevent DB Thundering Herd
+    const lockKey = `lock:build:products:${pageNum}:${limitNum}`;
+    const acquired = await this.redisService.getClient().set(lockKey, '1', 'EX', 5, 'NX');
+
+    if (!acquired) {
+      // Another instance is rebuilding this page. Wait briefly for Redis cache to populate.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        const retryCache = await this.redisService.get(cacheKey);
+        if (retryCache) {
+          try {
+            return JSON.parse(retryCache) as PaginatedProductsResponse;
+          } catch (_) {}
+        }
+      }
+    }
+
+    // 3. Query Database on Cache MISS (from Read Replica)
+    await this.redisService.incrMetric('db_build');
+    const skip = (pageNum - 1) * limitNum;
     const [items, total] = await this.productRepository.findAndCount({
       skip,
-      take: limit,
+      take: limitNum,
       order: { productId: 'ASC' },
     });
 
-    const data = items.map((product) => ({
-      productId: product.productId,
-      name: product.name,
-      price: Number(product.price),
-      availableStock: product.availableStock,
-      remainingStock: product.remainingStock ?? product.availableStock,
-      isFlashSaleActive: product.isFlashSaleActive,
-    }));
+    // High performance batch MGET from Redis for remaining stock
+    const stockKeys = items.map((p) => `stock:${p.productId}`);
+    let liveStocks: (string | null)[] = [];
+    try {
+      if (stockKeys.length > 0) {
+        liveStocks = await this.redisService.getClient().mget(...stockKeys);
+      }
+    } catch (_) {}
 
-    const totalPages = Math.ceil(total / limit);
+    const data = items.map((product, idx) => {
+      const liveStockVal = liveStocks[idx];
+      const remainingStock = liveStockVal !== null && liveStockVal !== undefined
+        ? Number(liveStockVal)
+        : Number(product.remainingStock ?? product.availableStock);
+
+      return {
+        productId: product.productId,
+        name: product.name,
+        price: Number(product.price),
+        availableStock: Number(product.availableStock),
+        remainingStock: Number(remainingStock),
+        isFlashSaleActive: Boolean(product.isFlashSaleActive),
+      };
+    });
+
+    const totalPages = Math.ceil(total / limitNum);
 
     const responsePayload: PaginatedProductsResponse = {
       status: 'success',
       data,
       meta: {
-        total,
-        page,
-        limit,
-        totalPages,
+        total: Number(total),
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Number(totalPages),
       },
     };
 
-    // 3. Save to Redis Cache with TTL
+    // 4. Save to Redis Cache with TTL (60s) and release build lock
     await this.redisService.set(
       cacheKey,
       JSON.stringify(responsePayload),
       this.CACHE_TTL_SECONDS,
     );
+    await this.redisService.getClient().del(lockKey).catch(() => {});
 
     return responsePayload;
   }

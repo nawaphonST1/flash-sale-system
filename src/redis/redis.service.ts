@@ -184,6 +184,60 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Atomic Lock + Stock Check + Decrement in 1 single Lua script on Redis
+   * Returns:
+   *  >= 0: Order accepted, returns remaining stock
+   *  -1: Product sold out
+   *  -2: Stock not initialized
+   *  -3: User already has lock / duplicate order
+   */
+  async claimFlashSaleOrder(
+    userId: string,
+    productId: string,
+    lockTtlSeconds: number = 600,
+  ): Promise<number> {
+    const lockKey = `lock:order:${userId}:${productId}`;
+    const stockKey = `stock:${productId}`;
+
+    const luaScript = `
+      -- 1. Check if user already submitted / holds lock
+      if redis.call('EXISTS', KEYS[1]) == 1 then
+        return -3
+      end
+
+      -- 2. Check stock
+      local stock = redis.call('GET', KEYS[2])
+      if not stock then
+        return -2
+      end
+
+      local stockNum = tonumber(stock)
+      if stockNum <= 0 then
+        return -1
+      end
+
+      -- 3. Atomically acquire lock and decrement stock
+      redis.call('SET', KEYS[1], '1', 'EX', ARGV[1])
+      local remaining = redis.call('DECRBY', KEYS[2], 1)
+      return remaining
+    `;
+
+    try {
+      const result = (await this.client.eval(
+        luaScript,
+        2,
+        lockKey,
+        stockKey,
+        lockTtlSeconds.toString(),
+      )) as number;
+      return result;
+    } catch (err: any) {
+      this.logger.error(`Failed executing claimFlashSaleOrder Lua script for user ${userId}, product ${productId}: ${err.message}`);
+      throw err;
+    }
+  }
+
+  /**
    * Atomic Stock Decrement via Redis Lua Script
    * Returns:
    *  >= 0: Remaining stock after decrement (Success)
@@ -212,5 +266,31 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       throw err;
     }
   }
+
+  /**
+   * Increment metric counter in Redis
+   */
+  async incrMetric(metricName: string): Promise<void> {
+    try {
+      await this.client.hincrby('metrics:flash_sale', metricName, 1);
+    } catch (_) {}
+  }
+
+  /**
+   * Get all live metrics from Redis
+   */
+  async getMetrics(): Promise<Record<string, number>> {
+    try {
+      const raw = await this.client.hgetall('metrics:flash_sale');
+      const res: Record<string, number> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        res[k] = Number(v) || 0;
+      }
+      return res;
+    } catch (_) {
+      return {};
+    }
+  }
 }
+
 

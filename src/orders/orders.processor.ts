@@ -1,12 +1,11 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Job } from 'bullmq';
+import { Job, Worker } from 'bullmq';
 import { DataSource, Repository } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
 import { RedisService } from '../redis/redis.service';
 import { Order, OrderStatus } from './entities/order.entity';
-import { ORDER_QUEUE_NAME } from './orders.service';
+import { ORDER_LANE_COUNT, ORDER_LANE_PREFIX } from './orders.service';
 
 interface OrderJobData {
   orderJobId: string;
@@ -14,9 +13,10 @@ interface OrderJobData {
   productId: string;
 }
 
-@Processor(ORDER_QUEUE_NAME)
-export class OrdersProcessor extends WorkerHost {
+@Injectable()
+export class OrdersProcessor implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersProcessor.name);
+  private workers: Worker[] = [];
 
   constructor(
     @InjectRepository(Order)
@@ -25,11 +25,29 @@ export class OrdersProcessor extends WorkerHost {
     private readonly productRepository: Repository<Product>,
     private readonly dataSource: DataSource,
     private readonly redisService: RedisService,
-  ) {
-    super();
+  ) {}
+
+  onModuleInit() {
+    for (let i = 0; i < ORDER_LANE_COUNT; i++) {
+      const queueName = `${ORDER_LANE_PREFIX}-${i}`;
+      const worker = new Worker(
+        queueName,
+        async (job: Job<OrderJobData>) => this.processOrder(job),
+        {
+          connection: this.redisService.getClient(),
+          concurrency: 5,
+        },
+      );
+      this.workers.push(worker);
+    }
+    this.logger.log(`Initialized ${ORDER_LANE_COUNT} Sharded Order Queue Workers (50 concurrent total).`);
   }
 
-  async process(job: Job<OrderJobData>): Promise<any> {
+  async onModuleDestroy() {
+    await Promise.all(this.workers.map((w) => w.close()));
+  }
+
+  async processOrder(job: Job<OrderJobData>): Promise<any> {
     const { orderJobId, userId, productId } = job.data;
     this.logger.log(`[Worker] Processing order job ${orderJobId} for user ${userId}, product ${productId}`);
 
@@ -70,8 +88,7 @@ export class OrdersProcessor extends WorkerHost {
       product.remainingStock = Math.max(0, (product.remainingStock ?? product.availableStock + 1) - 1);
       await queryRunner.manager.save(Product, product);
 
-      // Invalidate products cache (both pagination and single product item) asynchronously
-      this.redisService.delByPattern('products:page:*').catch(() => {});
+      // Invalidate single product item cache
       this.redisService.del(`product:${productId}`).catch(() => {});
 
       // 4. Create confirmed order record
@@ -106,11 +123,13 @@ export class OrdersProcessor extends WorkerHost {
       };
 
       await this.redisService.setJobStatus(orderJobId, successResult);
+      await this.redisService.incrMetric('orders_completed');
       this.logger.log(`[Worker] Order ${savedOrder.orderId} CONFIRMED for job ${orderJobId}`);
 
       return successResult;
     } catch (err: any) {
       await queryRunner.rollbackTransaction();
+      await this.redisService.incrMetric('orders_failed');
 
       this.logger.error(`[Worker] Order processing FAILED for job ${orderJobId}: ${err.message}`);
 

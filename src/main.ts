@@ -14,7 +14,12 @@ async function bootstrap() {
     }),
   );
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
+  const server = await app.listen(port, '0.0.0.0');
+  if (server && typeof server === 'object' && 'keepAliveTimeout' in server) {
+    server.keepAliveTimeout = 75000;
+    server.headersTimeout = 76000;
+    server.maxHeadersCount = 2000;
+  }
   console.log(`Application is running on: http://localhost:${port}`);
 }
 bootstrap();

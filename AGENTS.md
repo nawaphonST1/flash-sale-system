@@ -7,3 +7,11 @@ npm run start หรือคำสั่ง start ผมจะเป็นค�
 ผมมักลืมเปิด docker ถ้าเจอปัญหานี้ให้แจ้งเตือนผม เดี๋ยวผมจะเปิดเอง
 
 ไม่ต้องเขียน และ รัน e2e test ทุกชนิดเพราะมันทำให้ช้า หากเจอปัญหาที่จำเป็นให้แจ้งผมก่อน
+
+ห้ามใช้ Caching บน Nginx: Nginx ต้องทำหน้าที่เป็น Reverse Proxy และ Load Balancer บริสุทธิ์เท่านั้น
+
+ห้ามใช้ In-Memory Cache ใน Backend (Node.js RAM): ทุกอย่างต้องผ่าน Centralized Redis Cache และ PostgreSQL เพื่อให้วัดประสิทธิภาพของระบบ Multi-Instance ได้อย่างแท้จริง
+
+ห้ามแก้ไขไฟล์ Load Test เพื่อลดทอนความสมจริง: ให้คงพฤติกรรมในโลกความเป็นจริง (Read 1,000 VUs Overlap กับ Write 500 VUs แบบกดย้ำ) ไว้ 100% และแก้ไขเฉพาะระบบ Backend เท่านั้นครับ
+
+เราจะใช้เฉพาะวิธี Horizontal Scaling เท่านั้น

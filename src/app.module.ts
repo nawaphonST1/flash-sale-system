@@ -27,56 +27,27 @@ import { RedisModule } from './redis/redis.module';
     }),
 
     // PostgreSQL TypeORM Configuration with Master/Replica Replication
+    // PostgreSQL Master Database Configuration
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
-        replication: {
-          master: {
-            host: configService.get<string>('DB_HOST', 'localhost'),
-            port: Number(configService.get<number>('DB_PORT', 5433)),
-            username: configService.get<string>('DB_USERNAME', 'postgres'),
-            password: configService.get<string>('DB_PASSWORD', 'postgrespassword'),
-            database: configService.get<string>('DB_NAME', 'flash_sale_db'),
-          },
-          slaves: [
-            {
-              host: configService.get<string>(
-                'DB_REPLICA_HOST',
-                configService.get<string>('DB_HOST', 'localhost'),
-              ),
-              port: Number(
-                configService.get<number>(
-                  'DB_REPLICA_PORT',
-                  configService.get<number>('DB_PORT', 5433),
-                ),
-              ),
-              username: configService.get<string>(
-                'DB_REPLICA_USERNAME',
-                configService.get<string>('DB_USERNAME', 'postgres'),
-              ),
-              password: configService.get<string>(
-                'DB_REPLICA_PASSWORD',
-                configService.get<string>('DB_PASSWORD', 'postgrespassword'),
-              ),
-              database: configService.get<string>(
-                'DB_REPLICA_NAME',
-                configService.get<string>('DB_NAME', 'flash_sale_db'),
-              ),
-            },
-          ],
-        },
+        host: configService.get<string>('DB_HOST', 'localhost'),
+        port: Number(configService.get<number>('DB_PORT', 5433)),
+        username: configService.get<string>('DB_USERNAME', 'postgres'),
+        password: configService.get<string>('DB_PASSWORD', 'postgrespassword'),
+        database: configService.get<string>('DB_NAME', 'flash_sale_db'),
         entities: [Product, Order],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         migrationsRun: true, // Auto-run migrations on startup
         synchronize: false, // Safe for multi-instance and production
-        // Database Connection Pooling Options (Prevents Connection Exhaustion)
+        // High Performance Connection Pooling
         extra: {
-          max: 10, // Max connections per backend instance (3 instances = 30 max connections)
-          min: 2, // Keep 2 minimum connections alive
-          idleTimeoutMillis: 30000, // Close idle connections after 30s
-          connectionTimeoutMillis: 5000, // Connection timeout after 5s
+          max: 50, // 50 connections per instance (3 instances = 150 total connections)
+          min: 5,  // Keep 5 warm connections per instance
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 2000,
         },
       }),
     }),
@@ -93,6 +64,8 @@ import { RedisModule } from './redis/redis.module';
         },
       }),
     }),
+
+    TypeOrmModule.forFeature([Product, Order]),
 
     RedisModule,
     AuthModule,

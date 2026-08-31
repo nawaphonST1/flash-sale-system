@@ -1,32 +1,62 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
+import { ConflictException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Queue } from 'bullmq';
+import { Product } from '../products/entities/product.entity';
 import { RedisService } from '../redis/redis.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 
-export const ORDER_QUEUE_NAME = 'order-queue';
+export const ORDER_LANE_COUNT = 10;
+export const ORDER_LANE_PREFIX = 'order-queue';
 
 @Injectable()
-export class OrdersService {
+export class OrdersService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersService.name);
+  private queueLanes: Queue[] = [];
 
   constructor(
-    @InjectQueue(ORDER_QUEUE_NAME) private readonly orderQueue: Queue,
+    @InjectRepository(Product) private readonly productRepository: Repository<Product>,
     private readonly redisService: RedisService,
   ) {}
 
+  onModuleInit() {
+    for (let i = 0; i < ORDER_LANE_COUNT; i++) {
+      this.queueLanes.push(
+        new Queue(`${ORDER_LANE_PREFIX}-${i}`, {
+          connection: this.redisService.getClient(),
+        }),
+      );
+    }
+  }
+
+  async onModuleDestroy() {
+    await Promise.all(this.queueLanes.map((q) => q.close()));
+  }
+
+  getQueueLanes(): Queue[] {
+    return this.queueLanes;
+  }
+
+  private getLaneIndex(userId: string): number {
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) {
+      hash = (hash << 5) - hash + userId.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash) % ORDER_LANE_COUNT;
+  }
+
   /**
    * Process incoming order request:
-   * 1. Check Idempotency Key (returns cached response if already submitted)
-   * 2. Check & acquire atomic Redis lock (prevents double submission / enforces 1 per user)
-   * 3. Push job to BullMQ queue
-   * 4. Save Idempotency response in Redis
-   * 5. Return 202 Accepted response payload
+   * 1. Check Idempotency Key
+   * 2. Atomic Lock + Stock Check + Decrement via single Redis Lua script (1 roundtrip)
+   * 3. Push job into designated Sharded Queue Lane
+   * 4. Return 202 Accepted response payload
    */
   async createOrder(userId: string, dto: CreateOrderDto, idempotencyKey?: string) {
     const { productId } = dto;
 
-    // 1. Idempotency Check: if idempotency key is provided, check if response was already generated
+    // 1. Idempotency Check
     if (idempotencyKey) {
       const existingResponse = await this.redisService.get(`idempotency:${userId}:${idempotencyKey}`);
       if (existingResponse) {
@@ -39,39 +69,48 @@ export class OrdersService {
       }
     }
 
-    // 2. Atomic Redis Lock to prevent duplicate requests and enforce 1 order per user per product
-    const acquired = await this.redisService.acquireUserProductLock(userId, productId, 600);
-    if (!acquired) {
+    // 2. Atomic Lock + Stock Check + Decrement via single Redis Lua script (1 roundtrip)
+    let claimResult = await this.redisService.claimFlashSaleOrder(userId, productId, 600);
+
+    if (claimResult === -2) {
+      // Fallback: If stock key missing in Redis, sync from DB and retry
+      const product = await this.productRepository.findOne({ where: { productId } });
+      const initialStock = product ? product.availableStock : 0;
+      await this.redisService.initProductStock(productId, initialStock);
+      claimResult = await this.redisService.claimFlashSaleOrder(userId, productId, 600);
+    }
+
+    if (claimResult === -3) {
+      this.redisService.incrMetric('orders_duplicate');
       this.logger.warn(`Duplicate or concurrent order rejected for user ${userId} on product ${productId}`);
       throw new ConflictException(
         `You have already submitted an order or have an active order for product '${productId}'. (Limit 1 per user)`,
       );
     }
 
-    // 3. Fast-path: Atomic Stock Check & Decrement via Redis Lua Script
-    // If stock is depleted, reject immediately without burdening BullMQ or PostgreSQL
-    const remainingStock = await this.redisService.decrementProductStockAtomic(productId);
-    if (remainingStock === -1) {
-      // Release lock so user is not stuck on a failed attempt
-      await this.redisService.releaseUserProductLock(userId, productId);
-      throw new ConflictException(`Product '${productId}' is out of stock.`);
+    if (claimResult === -1 || claimResult < 0) {
+      this.redisService.incrMetric('orders_soldout');
+      throw new ConflictException('Product sold out');
     }
 
-    // 4. Generate unique order job ID
-    const orderJobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    this.redisService.incrMetric('orders_accepted');
 
-    // 5. Set initial status in Redis
+    // 3. Generate deterministic order job ID & set status in Redis
+    const orderJobId = `order:${userId}:${productId}`;
     await this.redisService.setJobStatus(orderJobId, {
       orderJobId,
       userId,
       productId,
-      status: 'PENDING',
+      status: 'processing',
       message: 'Order request is queued for processing',
       createdAt: new Date().toISOString(),
     });
 
-    // 5. Push job into BullMQ queue (Non-blocking Asynchronous processing)
-    await this.orderQueue.add(
+    // 4. Push job into designated Sharded Queue Lane
+    const lane = this.getLaneIndex(userId);
+    const targetQueue = this.queueLanes[lane] || this.queueLanes[0];
+
+    await targetQueue.add(
       'process-order',
       {
         orderJobId,
@@ -85,15 +124,12 @@ export class OrdersService {
       },
     );
 
-    this.logger.log(`Enqueued order job ${orderJobId} for user ${userId}, product ${productId}`);
-
     const responsePayload = {
-      status: 'PENDING',
+      status: 'processing',
       orderJobId,
       message: 'Order request accepted and queued for processing',
     };
 
-    // 6. Save Idempotency response in Redis (TTL 24 hours)
     if (idempotencyKey) {
       await this.redisService.set(
         `idempotency:${userId}:${idempotencyKey}`,
@@ -114,22 +150,24 @@ export class OrdersService {
       return status;
     }
 
-    const job = await this.orderQueue.getJob(orderJobId);
-    if (!job) {
-      return {
-        orderJobId,
-        status: 'UNKNOWN',
-        message: 'Order job not found',
-      };
+    for (const queue of this.queueLanes) {
+      const job = await queue.getJob(orderJobId);
+      if (job) {
+        const state = await job.getState();
+        return {
+          orderJobId,
+          status: state.toUpperCase(),
+          data: job.data,
+          returnvalue: job.returnvalue,
+          failedReason: job.failedReason,
+        };
+      }
     }
 
-    const state = await job.getState();
     return {
       orderJobId,
-      status: state.toUpperCase(),
-      data: job.data,
-      returnvalue: job.returnvalue,
-      failedReason: job.failedReason,
+      status: 'UNKNOWN',
+      message: 'Order job not found',
     };
   }
 }

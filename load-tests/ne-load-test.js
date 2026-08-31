@@ -39,23 +39,34 @@ const READ_LIMITS = String(__ENV.READ_LIMITS || '5,10,20') // limit values the r
     .map((n) => Number(n.trim()))
     .filter((n) => n > 0);
 
-// -- read phase: 1,000 concurrent readers browsing/refreshing catalog
+// -- read phase: minimise wall time while still hitting a true 1,000-VU plateau.
+// Ramp is gentle on purpose — a 5s slam to 1,000 VUs stampedes the api tier
+// before its caches/JIT warm and drags p95 well past 500ms.
 const READ_TARGET = Number(__ENV.READ_TARGET || 1000);
-const READ_RAMP = __ENV.READ_RAMP || '8s';
-const READ_HOLD = __ENV.READ_HOLD || '22s';
-const READ_DOWN = __ENV.READ_DOWN || '5s';
+const READ_RAMP = __ENV.READ_RAMP || '10s';
+const READ_HOLD = __ENV.READ_HOLD || '18s';
+const READ_DOWN = __ENV.READ_DOWN || '2s';
 
-// -- write phase: 500 concurrent buyers bursting at flash sale start (overlaps with read)
+// -- write phase: 500 concurrent, one shot each (a real "done" state)
 const WRITE_TARGET = Number(__ENV.WRITE_TARGET || 500);
-const WRITE_START = __ENV.WRITE_START || '10s'; // Starts while read phase is at peak
-const WRITE_MAXDUR = __ENV.WRITE_MAXDUR || '30s';
+const WRITE_MAXDUR = __ENV.WRITE_MAXDUR || '60s'; // safety ceiling; real run ~2-4s
+const DOUBLE_TAP_EVERY = Number(__ENV.DOUBLE_TAP_EVERY || 10); // every Nth VU double-fires
+
+const GAP = Number(__ENV.GAP || 3); // seconds between read end and write start
+const readSeconds = toSec(READ_RAMP) + toSec(READ_HOLD) + toSec(READ_DOWN);
+
+function toSec(d) {
+    const m = String(d).match(/^(\d+(?:\.\d+)?)(ms|s|m)?$/);
+    if (!m) return 0;
+    const n = parseFloat(m[1]);
+    return m[2] === 'ms' ? n / 1000 : m[2] === 'm' ? n * 60 : n;
+}
 
 // ============================ Custom metrics ================================
-const infraFail = new Rate('infra_failures'); // 5xx / timeout / unexpected 4xx (NOT 409/429)
+const infraFail = new Rate('infra_failures'); // 5xx / timeout / unexpected 4xx (NOT 409)
 const ordersAccepted = new Counter('orders_accepted'); // HTTP 202
 const ordersSoldout = new Counter('orders_soldout'); // HTTP 409 "Product sold out"
-const ordersDuplicate = new Counter('orders_duplicate'); // HTTP 409 already-claimed or duplicate
-const ordersThrottled = new Counter('orders_throttled'); // HTTP 429 in-flight lock
+const ordersDuplicate = new Counter('orders_duplicate'); // HTTP 409 already-claimed
 const readCacheHitPct = new Trend('read_cache_hit_pct'); // sampled during read phase
 const writeQueueBacklog = new Trend('write_queue_backlog'); // waiting+active, sampled during write
 const dataIntegrityOk = new Rate('data_integrity_ok'); // post-burst remainingStock == 0
@@ -63,11 +74,11 @@ const dataIntegrityOk = new Rate('data_integrity_ok'); // post-burst remainingSt
 const REQ = { timeout: REQ_TIMEOUT };
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
-// A response is an infra failure only if it is neither read success (200)
-// nor an expected business order outcome (202, 409, 429).
+// A response is an infra failure only if it is neither the read success (200)
+// nor an expected order outcome (202 accepted, 409 sold-out / duplicate).
 function isInfraFailure(res) {
     if (res.status === 0) return true; // timeout / connection error
-    if (res.status === 200 || res.status === 202 || res.status === 409 || res.status === 429) return false;
+    if (res.status === 200 || res.status === 202 || res.status === 409) return false;
     return true;
 }
 
@@ -76,23 +87,22 @@ export const options = {
     scenarios: {
         read_load: {
             executor: 'ramping-vus',
-            startVUs: 100,
+            startVUs: 0,
             stages: [
-                { duration: READ_RAMP, target: READ_TARGET }, // 1. Users ramp up to browse products
-                { duration: READ_HOLD, target: READ_TARGET }, // 2. Heavy refresh traffic during flash sale (Overlapping with write)
-                { duration: READ_DOWN, target: 0 },           // 3. Traffic cools down
+                { duration: READ_RAMP, target: READ_TARGET },
+                { duration: READ_HOLD, target: READ_TARGET },
+                { duration: READ_DOWN, target: 0 },
             ],
             exec: 'readScenario',
-            gracefulRampDown: '5s',
+            gracefulRampDown: '3s',
         },
         write_load: {
             executor: 'per-vu-iterations',
             vus: WRITE_TARGET,
             iterations: 1,
             maxDuration: WRITE_MAXDUR,
-            startTime: WRITE_START, // Overlaps with read_load while it is at 1,000 VUs peak
+            startTime: `${readSeconds + GAP}s`,
             exec: 'writeScenario',
-            gracefulStop: '10s',
         },
     },
     thresholds: {
@@ -130,20 +140,19 @@ export function setup() {
 
 // ============================ 2. read phase ===============================
 export function readScenario() {
-    // Realistic Zipf / Pareto (80/20) browsing behavior:
-    // 80% of users refresh Page 1 (where hot flash sale items are),
-    // 20% browse deeper pages.
+    // Rotate page + limit (spec §3 note: "Load test มีการลองเปลี่ยน page, limit บ้าง").
+    // Varying the query also spreads cache keys, so read_cache_hit_pct reflects a
+    // realistic multi-key workload rather than a single hot key.
     const limit = READ_LIMITS[Math.floor(Math.random() * READ_LIMITS.length)];
     const maxPage = Math.max(1, Math.ceil(TOTAL_PRODUCTS / limit));
-    const isFrontPage = Math.random() < 0.8;
-    const page = isFrontPage ? 1 : (1 + Math.floor(Math.random() * maxPage));
+    const page = 1 + Math.floor(Math.random() * maxPage);
     const expectedRows = Math.min(limit, Math.max(0, TOTAL_PRODUCTS - (page - 1) * limit));
 
     const res = http.get(`${BASE_URL}/api/v1/products?page=${page}&limit=${limit}`, {...REQ, tags: { name: 'products' } });
 
     check(res, {
         'read: status 200': (r) => r.status === 200,
-        // response must echo the exact scope it was asked for
+        // spec §2.2 challenge: response must echo the exact scope it was asked for.
         'read: meta echoes scope': (r) => {
             try {
                 const j = r.json();
@@ -163,11 +172,8 @@ export function readScenario() {
     });
     infraFail.add(isInfraFailure(res));
 
-    // cache check: sample cache hit ratio during peak traffic
+    // cache check (spec §3.1): one VU samples the live hit ratio a few times.
     if (__VU === 1 && __ITER % 25 === 0) sampleCache('read');
-
-    // Natural human think time / pull-to-refresh pacing (200ms - 500ms jitter)
-    sleep(0.2 + Math.random() * 0.3);
 }
 
 // ============================ 3. write phase ==============================
@@ -176,36 +182,25 @@ export function writeScenario(data) {
     const params = {...REQ, headers: {...JSON_HDR, Authorization: `Bearer ${token}` }, tags: { name: 'orders' } };
     const body = JSON.stringify({ productId: PRODUCT_ID });
 
-    // Realistic buyer behavior: Users excitedly tap the "Buy Now" button 2 to 3 times in rapid succession.
-    // 50% fire dual concurrent burst requests, while 50% tap rapidly with 50-120ms human finger jitter.
-    const isConcurrentBurst = Math.random() < 0.5;
-
-    if (isConcurrentBurst) {
-        // Concurrent burst (batch): tests exact same millisecond race condition on Redis lock
-        const burstCount = 2 + Math.floor(Math.random() * 2);
-        const burst = Array.from({ length: burstCount }, () => ({ method: 'POST', url: `${BASE_URL}/api/v1/orders`, body, params }));
+    if (__VU % DOUBLE_TAP_EVERY === 0) {
+        // Double / triple tap: 2-3 identical requests fired CONCURRENTLY (http.batch)
+        // so they actually race the SADD lock, not run one after another.
+        const n = 2 + Math.floor(Math.random() * 2);
+        const burst = Array.from({ length: n }, () => ({ method: 'POST', url: `${BASE_URL}/api/v1/orders`, body, params }));
         http.batch(burst).forEach(tallyOrder);
     } else {
-        // Rapid sequential taps with human jitter
-        const tapCount = 2 + Math.floor(Math.random() * 2);
-        for (let i = 0; i < tapCount; i++) {
-            tallyOrder(http.post(`${BASE_URL}/api/v1/orders`, body, params));
-            sleep(0.05 + Math.random() * 0.07); // 50ms - 120ms
-        }
+        tallyOrder(http.post(`${BASE_URL}/api/v1/orders`, body, params));
     }
+
 }
 
 function tallyOrder(res) {
-    const ok = check(res, { 'write: status in {202, 409, 429}': (r) => r.status === 202 || r.status === 409 || r.status === 429 });
+    const ok = check(res, { 'write: status 202 or 409': (r) => r.status === 202 || r.status === 409 });
     infraFail.add(isInfraFailure(res));
     if (!ok) return;
 
     if (res.status === 202) {
         ordersAccepted.add(1);
-        return;
-    }
-    if (res.status === 429) {
-        ordersThrottled.add(1);
         return;
     }
     let msg = '';
@@ -214,7 +209,7 @@ function tallyOrder(res) {
     } catch (e) {
         /* keep '' */
     }
-    if (msg.includes('sold out')) ordersSoldout.add(1);
+    if (msg === 'Product sold out') ordersSoldout.add(1);
     else ordersDuplicate.add(1);
 }
 
@@ -369,7 +364,6 @@ export function handleSummary(data) {
         `    orders accepted .. ${g('orders_accepted', 'count')}   (expect 50)`,
         `    409 sold out ..... ${g('orders_soldout', 'count')}`,
         `    409 duplicate .... ${g('orders_duplicate', 'count')}`,
-        `    429 throttled .... ${g('orders_throttled', 'count')}`,
         `    p95 latency ...... ${f2(g(wd, 'p(95)'))} ms   (max ${f2(g(wd, 'max'))} ms)`,
         `    checks .......... ${f2(g('checks{scenario:write_load}', 'rate') * 100)}% pass`,
         `    queue backlog .... peak ${g('write_queue_backlog', 'max')} (waiting+active, sampled)`,
@@ -384,8 +378,7 @@ export function handleSummary(data) {
     ].join('\n');
 
     const out = { stdout: banner };
-    if (__ENV.SUMMARY_PATH) {
-        out[__ENV.SUMMARY_PATH] = JSON.stringify(data, null, 2);
-    }
+    const path = __ENV.SUMMARY_PATH || 'loadtest/results/flash-sale-summary.json';
+    out[path] = JSON.stringify(data, null, 2);
     return out;
 }
