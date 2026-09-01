@@ -176,21 +176,47 @@ export function writeScenario(data) {
     const params = {...REQ, headers: {...JSON_HDR, Authorization: `Bearer ${token}` }, tags: { name: 'orders' } };
     const body = JSON.stringify({ productId: PRODUCT_ID });
 
-    // Realistic buyer behavior: Users excitedly tap the "Buy Now" button 2 to 3 times in rapid succession.
-    // 50% fire dual concurrent burst requests, while 50% tap rapidly with 50-120ms human finger jitter.
-    const isConcurrentBurst = Math.random() < 0.5;
+    // Multi-Persona Simulation:
+    // 1. Aggressive Spammers / Bots (~10% of users: 50 VUs):
+    //    Continuous rapid-fire spamming (2-4 requests in burst per loop) for the entire 30s duration without sleep.
+    const isSpammer = __VU % 10 === 0;
 
-    if (isConcurrentBurst) {
-        // Concurrent burst (batch): tests exact same millisecond race condition on Redis lock
-        const burstCount = 2 + Math.floor(Math.random() * 2);
-        const burst = Array.from({ length: burstCount }, () => ({ method: 'POST', url: `${BASE_URL}/api/v1/orders`, body, params }));
-        http.batch(burst).forEach(tallyOrder);
+    if (isSpammer) {
+        const spamDurationMs = 30000; // 30 seconds
+        const startTime = Date.now();
+        while (Date.now() - startTime < spamDurationMs) {
+            const burstCount = 2 + Math.floor(Math.random() * 3); // 2 to 4 rapid requests per loop
+            const burst = Array.from({ length: burstCount }, () => ({
+                method: 'POST',
+                url: `${BASE_URL}/api/v1/orders`,
+                body,
+                params,
+            }));
+            http.batch(burst).forEach(tallyOrder);
+            // No sleep() — tight loop simulation of automated bot / autoclicker
+        }
     } else {
-        // Rapid sequential taps with human jitter
-        const tapCount = 2 + Math.floor(Math.random() * 2);
-        for (let i = 0; i < tapCount; i++) {
-            tallyOrder(http.post(`${BASE_URL}/api/v1/orders`, body, params));
-            sleep(0.05 + Math.random() * 0.07); // 50ms - 120ms
+        // 2. Normal Buyers (~90% of users: 450 VUs):
+        //    Excitedly tap "Buy Now" 2-3 times at flash sale start (50% concurrent burst, 50% rapid finger tap)
+        const isConcurrentBurst = Math.random() < 0.5;
+
+        if (isConcurrentBurst) {
+            // Concurrent burst (batch): tests exact same millisecond race condition on Redis lock
+            const burstCount = 2 + Math.floor(Math.random() * 2);
+            const burst = Array.from({ length: burstCount }, () => ({
+                method: 'POST',
+                url: `${BASE_URL}/api/v1/orders`,
+                body,
+                params,
+            }));
+            http.batch(burst).forEach(tallyOrder);
+        } else {
+            // Rapid sequential taps with natural human jitter
+            const tapCount = 2 + Math.floor(Math.random() * 2);
+            for (let i = 0; i < tapCount; i++) {
+                tallyOrder(http.post(`${BASE_URL}/api/v1/orders`, body, params));
+                sleep(0.05 + Math.random() * 0.07); // 50ms - 120ms
+            }
         }
     }
 }
