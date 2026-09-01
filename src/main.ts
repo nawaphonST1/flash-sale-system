@@ -17,17 +17,34 @@ async function bootstrap() {
   }
 
   // API HTTP Server mode with Fastify
+  const adapter = new FastifyAdapter({
+    logger: false,
+    keepAliveTimeout: 75000,
+  });
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({
-      logger: false,
-      disableRequestLogging: true,
-      keepAliveTimeout: 75000,
-    }),
+    adapter,
     {
       logger: ['warn', 'error'],
+      rawBody: true,
     },
   );
+
+  const fastify = app.getHttpAdapter().getInstance();
+
+  // Fastify Hook: Handle empty body when Content-Type is application/json (e.g. reset script)
+  fastify.addHook('preParsing', (req: any, reply: any, payload: any, done: any) => {
+    const contentType = req.headers['content-type'] || '';
+    const contentLength = req.headers['content-length'];
+    if (
+      contentType.includes('application/json') &&
+      (contentLength === '0' || contentLength === undefined)
+    ) {
+      req.headers['content-type'] = 'text/plain';
+    }
+    done(null, payload);
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
