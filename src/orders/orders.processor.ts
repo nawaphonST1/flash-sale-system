@@ -1,7 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Job, Worker } from 'bullmq';
 import { DataSource, Repository } from 'typeorm';
+import { InjectMetric } from '@willsoto/nestjs-prometheus';
+import { Counter } from 'prom-client';
 import { Product } from '../products/entities/product.entity';
 import { RedisService } from '../redis/redis.service';
 import { Order, OrderStatus } from './entities/order.entity';
@@ -25,6 +27,12 @@ export class OrdersProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly productRepository: Repository<Product>,
     private readonly dataSource: DataSource,
     private readonly redisService: RedisService,
+    @Optional()
+    @InjectMetric('flash_sale_orders_total')
+    private readonly ordersCounter?: Counter<string>,
+    @Optional()
+    @InjectMetric('flash_sale_queue_jobs_total')
+    private readonly queueJobsCounter?: Counter<string>,
   ) {}
 
   onModuleInit() {
@@ -124,12 +132,16 @@ export class OrdersProcessor implements OnModuleInit, OnModuleDestroy {
 
       await this.redisService.setJobStatus(orderJobId, successResult);
       await this.redisService.incrMetric('orders_completed');
+      this.ordersCounter?.inc({ status: 'confirmed' });
+      this.queueJobsCounter?.inc({ queue: 'order_lane', status: 'completed' });
       this.logger.log(`[Worker] Order ${savedOrder.orderId} CONFIRMED for job ${orderJobId}`);
 
       return successResult;
     } catch (err: any) {
       await queryRunner.rollbackTransaction();
       await this.redisService.incrMetric('orders_failed');
+      this.ordersCounter?.inc({ status: 'failed' });
+      this.queueJobsCounter?.inc({ queue: 'order_lane', status: 'failed' });
 
       this.logger.error(`[Worker] Order processing FAILED for job ${orderJobId}: ${err.message}`);
 

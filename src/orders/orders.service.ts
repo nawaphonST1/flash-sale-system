@@ -1,7 +1,9 @@
-import { ConflictException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Queue } from 'bullmq';
+import { InjectMetric } from '@willsoto/nestjs-prometheus';
+import { Counter } from 'prom-client';
 import { Product } from '../products/entities/product.entity';
 import { RedisService } from '../redis/redis.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -17,6 +19,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(Product) private readonly productRepository: Repository<Product>,
     private readonly redisService: RedisService,
+    @Optional()
+    @InjectMetric('flash_sale_orders_total')
+    private readonly ordersCounter?: Counter<string>,
+    @Optional()
+    @InjectMetric('flash_sale_queue_jobs_total')
+    private readonly queueJobsCounter?: Counter<string>,
   ) {}
 
   onModuleInit() {
@@ -82,6 +90,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     if (claimResult === -3) {
       this.redisService.incrMetric('orders_duplicate');
+      this.ordersCounter?.inc({ status: 'duplicate_request' });
       this.logger.warn(`Duplicate or concurrent order rejected for user ${userId} on product ${productId}`);
       throw new ConflictException(
         `You have already submitted an order or have an active order for product '${productId}'. (Limit 1 per user)`,
@@ -90,10 +99,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     if (claimResult === -1 || claimResult < 0) {
       this.redisService.incrMetric('orders_soldout');
+      this.ordersCounter?.inc({ status: 'out_of_stock' });
       throw new ConflictException('Product sold out');
     }
 
     this.redisService.incrMetric('orders_accepted');
+    this.ordersCounter?.inc({ status: 'accepted' });
 
     // 3. Generate deterministic order job ID & set status in Redis
     const orderJobId = `order:${userId}:${productId}`;
@@ -119,10 +130,22 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       },
       {
         jobId: orderJobId,
-        removeOnComplete: true,
-        removeOnFail: false,
+        removeOnComplete: {
+          count: 1000,
+          age: 3600,
+        },
+        removeOnFail: {
+          count: 5000,
+        },
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 500,
+        },
       },
     );
+
+    this.queueJobsCounter?.inc({ queue: 'order_lane', status: 'enqueued' });
 
     const responsePayload = {
       status: 'processing',

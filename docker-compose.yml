@@ -5,6 +5,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: flash-sale-postgres
+    command: postgres -c max_connections=300 -c shared_buffers=256MB
     environment:
       POSTGRES_USER: ${DB_USERNAME:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -23,7 +24,7 @@ services:
   flash-sale-redis:
     image: redis:7-alpine
     container_name: flash-sale-redis
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction
     ports:
       - "6379:6379"
     volumes:
@@ -46,6 +47,9 @@ services:
       - auth-app-1
       - auth-app-2
       - auth-app-3
+      - auth-app-4
+      - auth-app-5
+      - auth-app-6
     networks:
       - flash-sale-net
     restart: unless-stopped
@@ -73,6 +77,8 @@ services:
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-adminpassword}
     networks:
       - flash-sale-net
     restart: unless-stopped
@@ -100,6 +106,8 @@ services:
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-adminpassword}
     networks:
       - flash-sale-net
     restart: unless-stopped
@@ -127,6 +135,95 @@ services:
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-adminpassword}
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # Backend Instance 4 (Auth & App)
+  # ==========================================
+  auth-app-4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flash-sale-auth-app-4
+    depends_on:
+      - postgres
+      - flash-sale-redis
+    environment:
+      - PORT=3000
+      - INSTANCE_ID=auth-instance-4
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-flash_sale_db}
+      - REDIS_HOST=flash-sale-redis
+      - REDIS_PORT=6379
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-adminpassword}
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # Backend Instance 5 (Auth & App)
+  # ==========================================
+  auth-app-5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flash-sale-auth-app-5
+    depends_on:
+      - postgres
+      - flash-sale-redis
+    environment:
+      - PORT=3000
+      - INSTANCE_ID=auth-instance-5
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-flash_sale_db}
+      - REDIS_HOST=flash-sale-redis
+      - REDIS_PORT=6379
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-adminpassword}
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # Backend Instance 6 (Auth & App)
+  # ==========================================
+  auth-app-6:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flash-sale-auth-app-6
+    depends_on:
+      - postgres
+      - flash-sale-redis
+    environment:
+      - PORT=3000
+      - INSTANCE_ID=auth-instance-6
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-flash_sale_db}
+      - REDIS_HOST=flash-sale-redis
+      - REDIS_PORT=6379
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-adminpassword}
     networks:
       - flash-sale-net
     restart: unless-stopped

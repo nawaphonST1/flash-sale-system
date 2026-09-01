@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -11,6 +12,11 @@ import { OrdersModule } from './orders/orders.module';
 import { Product } from './products/entities/product.entity';
 import { ProductsModule } from './products/products.module';
 import { RedisModule } from './redis/redis.module';
+import { AdminModule } from './admin/admin.module';
+import { BullBoardModule } from './bull-board.module';
+import { HealthModule } from './health/health.module';
+import { MetricsModule } from './metrics/metrics.module';
+import { MetricsInterceptor } from './metrics/metrics.interceptor';
 
 @Module({
   imports: [
@@ -18,7 +24,7 @@ import { RedisModule } from './redis/redis.module';
       isGlobal: true,
     }),
 
-    // Prometheus Metrics Provider
+    // Prometheus Metrics Provider (/metrics)
     PrometheusModule.register({
       path: '/metrics',
       defaultMetrics: {
@@ -26,7 +32,6 @@ import { RedisModule } from './redis/redis.module';
       },
     }),
 
-    // PostgreSQL TypeORM Configuration with Master/Replica Replication
     // PostgreSQL Master Database Configuration
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -44,10 +49,10 @@ import { RedisModule } from './redis/redis.module';
         synchronize: false, // Safe for multi-instance and production
         // High Performance Connection Pooling
         extra: {
-          max: 50, // 50 connections per instance (3 instances = 150 total connections)
+          max: 30, // 30 connections per instance (6 instances = 180 total connections)
           min: 5,  // Keep 5 warm connections per instance
           idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 2000,
+          connectionTimeoutMillis: 10000,
         },
       }),
     }),
@@ -68,11 +73,21 @@ import { RedisModule } from './redis/redis.module';
     TypeOrmModule.forFeature([Product, Order]),
 
     RedisModule,
+    AdminModule,
     AuthModule,
     ProductsModule,
     OrdersModule,
+    BullBoardModule,
+    HealthModule,
+    MetricsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: MetricsInterceptor,
+    },
+  ],
 })
 export class AppModule {}

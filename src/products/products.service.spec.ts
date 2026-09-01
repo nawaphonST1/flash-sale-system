@@ -34,8 +34,13 @@ describe('ProductsService', () => {
     };
 
     mockRedisService = {
+      getClient: jest.fn().mockReturnValue({
+        set: jest.fn().mockResolvedValue('OK'),
+        del: jest.fn().mockResolvedValue(1),
+      }),
       get: jest.fn().mockResolvedValue(null),
       set: jest.fn().mockResolvedValue(undefined),
+      incrMetric: jest.fn().mockResolvedValue(1),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -100,4 +105,3 @@ describe('ProductsService', () => {
     );
   });
 });
-

@@ -1,34 +1,36 @@
-import { getQueueToken } from '@nestjs/bullmq';
 import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Product } from '../products/entities/product.entity';
 import { RedisService } from '../redis/redis.service';
-import { ORDER_QUEUE_NAME, OrdersService } from './orders.service';
+import { OrdersService } from './orders.service';
 
 describe('OrdersService', () => {
   let service: OrdersService;
-  let mockQueue: any;
   let mockRedisService: any;
+  let mockProductRepo: any;
 
   beforeEach(async () => {
-    mockQueue = {
-      add: jest.fn().mockResolvedValue({ id: 'job-123' }),
-      getJob: jest.fn().mockResolvedValue(null),
-    };
-
     mockRedisService = {
-      acquireUserProductLock: jest.fn().mockResolvedValue(true),
-      releaseUserProductLock: jest.fn().mockResolvedValue(undefined),
+      getClient: jest.fn().mockReturnValue({}),
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue(undefined),
+      claimFlashSaleOrder: jest.fn().mockResolvedValue(49),
       setJobStatus: jest.fn().mockResolvedValue(undefined),
       getJobStatus: jest.fn().mockResolvedValue(null),
-      decrementProductStockAtomic: jest.fn().mockResolvedValue(49),
+      incrMetric: jest.fn().mockResolvedValue(1),
+    };
+
+    mockProductRepo = {
+      findOne: jest.fn().mockResolvedValue({ productId: 'p-1001', availableStock: 50 }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdersService,
         {
-          provide: getQueueToken(ORDER_QUEUE_NAME),
-          useValue: mockQueue,
+          provide: getRepositoryToken(Product),
+          useValue: mockProductRepo,
         },
         {
           provide: RedisService,
@@ -44,22 +46,32 @@ describe('OrdersService', () => {
     expect(service).toBeDefined();
   });
 
-  it('should acquire lock and push job to queue returning 202 payload', async () => {
+  it('should process order returning 202 processing status', async () => {
+    // mock queueLanes
+    (service as any).queueLanes = [
+      { add: jest.fn().mockResolvedValue({ id: 'job-123' }), close: jest.fn() },
+    ];
+
     const result = await service.createOrder('user-1', { productId: 'p-1001' });
 
-    expect(mockRedisService.acquireUserProductLock).toHaveBeenCalledWith('user-1', 'p-1001', 600);
-    expect(mockQueue.add).toHaveBeenCalled();
-    expect(result.status).toBe('PENDING');
-    expect(result.orderJobId).toBeDefined();
+    expect(mockRedisService.claimFlashSaleOrder).toHaveBeenCalledWith('user-1', 'p-1001', 600);
+    expect(result.status).toBe('processing');
+    expect(result.orderJobId).toBe('order:user-1:p-1001');
   });
 
-  it('should throw ConflictException if lock is already held', async () => {
-    mockRedisService.acquireUserProductLock.mockResolvedValueOnce(false);
+  it('should throw ConflictException if duplicate order', async () => {
+    mockRedisService.claimFlashSaleOrder.mockResolvedValueOnce(-3);
 
     await expect(
       service.createOrder('user-1', { productId: 'p-1001' }),
     ).rejects.toThrow(ConflictException);
+  });
 
-    expect(mockQueue.add).not.toHaveBeenCalled();
+  it('should throw ConflictException if product sold out', async () => {
+    mockRedisService.claimFlashSaleOrder.mockResolvedValueOnce(-1);
+
+    await expect(
+      service.createOrder('user-1', { productId: 'p-1001' }),
+    ).rejects.toThrow(ConflictException);
   });
 });

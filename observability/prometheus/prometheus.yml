@@ -10,5 +10,8 @@ scrape_configs:
           - 'auth-app-1:3000'
           - 'auth-app-2:3000'
           - 'auth-app-3:3000'
+          - 'auth-app-4:3000'
+          - 'auth-app-5:3000'
+          - 'auth-app-6:3000'
         labels:
           group: 'flash-sale-cluster'
