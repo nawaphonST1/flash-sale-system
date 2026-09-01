@@ -8,7 +8,7 @@ services:
     command: postgres -c max_connections=300 -c shared_buffers=192MB -c work_mem=4MB -c synchronous_commit=off
     environment:
       POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgrespassword}
       POSTGRES_DB: ${DB_NAME:-flash_sale_db}
     ports:
       - "5433:5432"
@@ -69,12 +69,12 @@ services:
       - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-1
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-flash_sale_super_secure_jwt_secret_key_2026}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=${DB_USERNAME:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD:-postgrespassword}
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
@@ -99,12 +99,12 @@ services:
       - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-2
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-flash_sale_super_secure_jwt_secret_key_2026}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=${DB_USERNAME:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD:-postgrespassword}
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
@@ -129,12 +129,12 @@ services:
       - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-3
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-flash_sale_super_secure_jwt_secret_key_2026}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=${DB_USERNAME:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD:-postgrespassword}
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
@@ -159,12 +159,12 @@ services:
       - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-4
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-flash_sale_super_secure_jwt_secret_key_2026}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=${DB_USERNAME:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD:-postgrespassword}
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
@@ -189,12 +189,12 @@ services:
       - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-5
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-flash_sale_super_secure_jwt_secret_key_2026}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=${DB_USERNAME:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD:-postgrespassword}
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
@@ -219,12 +219,12 @@ services:
       - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-6
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-flash_sale_super_secure_jwt_secret_key_2026}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=${DB_USERNAME:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD:-postgrespassword}
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
@@ -250,7 +250,7 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=${DB_USERNAME:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD:-postgrespassword}
       - DB_NAME=${DB_NAME:-flash_sale_db}
       - REDIS_HOST=flash-sale-redis
       - REDIS_PORT=6379
