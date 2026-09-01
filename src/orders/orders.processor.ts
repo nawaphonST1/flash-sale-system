@@ -36,6 +36,11 @@ export class OrdersProcessor implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    if (process.env.ROLE !== 'worker') {
+      this.logger.log('Skipping OrdersProcessor worker initialization (ROLE is not worker).');
+      return;
+    }
+
     for (let i = 0; i < ORDER_LANE_COUNT; i++) {
       const queueName = `${ORDER_LANE_PREFIX}-${i}`;
       const worker = new Worker(

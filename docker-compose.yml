@@ -5,7 +5,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: flash-sale-postgres
-    command: postgres -c max_connections=300 -c shared_buffers=256MB
+    command: postgres -c max_connections=300 -c shared_buffers=192MB -c work_mem=4MB -c synchronous_commit=off
     environment:
       POSTGRES_USER: ${DB_USERNAME:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -66,6 +66,7 @@ services:
       - postgres
       - flash-sale-redis
     environment:
+      - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-1
       - JWT_SECRET=${JWT_SECRET}
@@ -95,6 +96,7 @@ services:
       - postgres
       - flash-sale-redis
     environment:
+      - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-2
       - JWT_SECRET=${JWT_SECRET}
@@ -124,6 +126,7 @@ services:
       - postgres
       - flash-sale-redis
     environment:
+      - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-3
       - JWT_SECRET=${JWT_SECRET}
@@ -153,6 +156,7 @@ services:
       - postgres
       - flash-sale-redis
     environment:
+      - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-4
       - JWT_SECRET=${JWT_SECRET}
@@ -182,6 +186,7 @@ services:
       - postgres
       - flash-sale-redis
     environment:
+      - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-5
       - JWT_SECRET=${JWT_SECRET}
@@ -211,6 +216,7 @@ services:
       - postgres
       - flash-sale-redis
     environment:
+      - ROLE=api
       - PORT=3000
       - INSTANCE_ID=auth-instance-6
       - JWT_SECRET=${JWT_SECRET}
@@ -224,6 +230,30 @@ services:
       - REDIS_PORT=6379
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-adminpassword}
+    networks:
+      - flash-sale-net
+    restart: unless-stopped
+
+  # ==========================================
+  # Background Worker Instance (BullMQ Queue Consumer)
+  # ==========================================
+  worker-app-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flash-sale-worker-1
+    depends_on:
+      - postgres
+      - flash-sale-redis
+    environment:
+      - ROLE=worker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-flash_sale_db}
+      - REDIS_HOST=flash-sale-redis
+      - REDIS_PORT=6379
     networks:
       - flash-sale-net
     restart: unless-stopped

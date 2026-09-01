@@ -1,13 +1,34 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
 import { BullBoardService } from './bull-board.module';
 
 async function bootstrap() {
-  const isProduction = process.env.NODE_ENV === 'production';
-  const app = await NestFactory.create(AppModule, {
-    logger: isProduction ? ['warn', 'error'] : ['log', 'warn', 'error'],
-  });
+  const isWorker = process.env.ROLE === 'worker';
+
+  if (isWorker) {
+    // Worker only mode (No HTTP server required)
+    const app = await NestFactory.createApplicationContext(AppModule, {
+      logger: ['error', 'warn', 'log'],
+    });
+    console.log(`[Worker Process] Background Queue Worker started with role: worker`);
+    return;
+  }
+
+  // API HTTP Server mode with Fastify
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter({
+      logger: false,
+      disableRequestLogging: true,
+      keepAliveTimeout: 75000,
+    }),
+    {
+      logger: ['warn', 'error'],
+    },
+  );
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -15,35 +36,19 @@ async function bootstrap() {
     }),
   );
 
-  const bullBoardService = app.get(BullBoardService);
-  const adminUser = process.env.ADMIN_USER || 'admin';
-  const adminPass = process.env.ADMIN_PASSWORD || 'admin';
-
-  app.use('/admin/queues', (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Basic ')) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="BullBoard Admin"');
-      return res.status(401).send('Authentication required');
-    }
-
-    const base64Credentials = authHeader.split(' ')[1];
-    const credentials = Buffer.from(base64Credentials, 'base64').toString('utf8');
-    const [username, password] = credentials.split(':');
-
-    if (username === adminUser && password === adminPass) {
-      return next();
-    }
-
-    res.setHeader('WWW-Authenticate', 'Basic realm="BullBoard Admin"');
-    return res.status(401).send('Invalid credentials');
-  }, bullBoardService.getRouter());
-  const port = process.env.PORT ?? 3000;
-  const server = await app.listen(port, '0.0.0.0');
-  if (server && typeof server === 'object' && 'keepAliveTimeout' in server) {
-    server.keepAliveTimeout = 75000;
-    server.headersTimeout = 76000;
-    server.maxHeadersCount = 2000;
+  // Register BullBoard for admin UI
+  try {
+    const bullBoardService = app.get(BullBoardService);
+    const serverAdapter = bullBoardService.getServerAdapter();
+    const fastifyInstance = app.getHttpAdapter().getInstance();
+    serverAdapter.setBasePath('/admin/queues');
+    fastifyInstance.register(serverAdapter.registerPlugin(), { prefix: '/admin/queues' } as any);
+  } catch (err: any) {
+    console.warn(`BullBoard registration note: ${err.message}`);
   }
-  console.log(`Application is running on: http://localhost:${port}`);
+
+  const port = Number(process.env.PORT ?? 3000);
+  await app.listen(port, '0.0.0.0');
+  console.log(`[API Process] High-Performance Fastify Server is running on: http://0.0.0.0:${port}`);
 }
 bootstrap();

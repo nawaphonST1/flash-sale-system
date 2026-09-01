@@ -20,6 +20,49 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       lazyConnect: true,
     });
 
+    // Define claimFlashSaleOrder command (auto EVALSHA, 1 Network Roundtrip)
+    this.client.defineCommand('claimFlashSaleOrder', {
+      numberOfKeys: 3,
+      lua: `
+        -- KEYS[1]: lock:order:userId:productId
+        -- KEYS[2]: stock:productId
+        -- KEYS[3]: metrics:flash_sale
+        -- ARGV[1]: lockTtlSeconds
+
+        -- 1. Check duplicate lock
+        if redis.call('EXISTS', KEYS[1]) == 1 then
+          redis.call('HINCRBY', KEYS[3], 'orders_duplicate', 1)
+          return -3
+        end
+
+        -- 2. Check stock existence
+        local stock = redis.call('GET', KEYS[2])
+        if not stock then
+          return -2
+        end
+
+        local stockNum = tonumber(stock)
+        if stockNum <= 0 then
+          redis.call('HINCRBY', KEYS[3], 'orders_soldout', 1)
+          return -1
+        end
+
+        -- 3. Atomic lock & decrement stock & increment accepted metrics
+        redis.call('SET', KEYS[1], '1', 'EX', ARGV[1])
+        local remaining = redis.call('DECRBY', KEYS[2], 1)
+        if remaining < 0 then
+          -- Rollback if concurrency overshoot
+          redis.call('INCRBY', KEYS[2], 1)
+          redis.call('DEL', KEYS[1])
+          redis.call('HINCRBY', KEYS[3], 'orders_soldout', 1)
+          return -1
+        end
+
+        redis.call('HINCRBY', KEYS[3], 'orders_accepted', 1)
+        return remaining
+      `,
+    });
+
     this.client.connect().catch((err) => {
       this.logger.warn(
         `Redis connection failed on ${host}:${port}. If using Docker, please make sure Redis is started. Error: ${err.message}`,
@@ -184,7 +227,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Atomic Lock + Stock Check + Decrement in 1 single Lua script on Redis
+   * Atomic Lock + Stock Check + Decrement in 1 single Lua script on Redis (via EVALSHA)
    * Returns:
    *  >= 0: Order accepted, returns remaining stock
    *  -1: Product sold out
@@ -198,41 +241,19 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   ): Promise<number> {
     const lockKey = `lock:order:${userId}:${productId}`;
     const stockKey = `stock:${productId}`;
-
-    const luaScript = `
-      -- 1. Check if user already submitted / holds lock
-      if redis.call('EXISTS', KEYS[1]) == 1 then
-        return -3
-      end
-
-      -- 2. Check stock
-      local stock = redis.call('GET', KEYS[2])
-      if not stock then
-        return -2
-      end
-
-      local stockNum = tonumber(stock)
-      if stockNum <= 0 then
-        return -1
-      end
-
-      -- 3. Atomically acquire lock and decrement stock
-      redis.call('SET', KEYS[1], '1', 'EX', ARGV[1])
-      local remaining = redis.call('DECRBY', KEYS[2], 1)
-      return remaining
-    `;
+    const metricsKey = 'metrics:flash_sale';
 
     try {
-      const result = (await this.client.eval(
-        luaScript,
-        2,
+      // Use defined EVALSHA command on client
+      const result = await (this.client as any).claimFlashSaleOrder(
         lockKey,
         stockKey,
+        metricsKey,
         lockTtlSeconds.toString(),
-      )) as number;
-      return result;
+      );
+      return Number(result);
     } catch (err: any) {
-      this.logger.error(`Failed executing claimFlashSaleOrder Lua script for user ${userId}, product ${productId}: ${err.message}`);
+      this.logger.error(`Failed executing claimFlashSaleOrder for user ${userId}, product ${productId}: ${err.message}`);
       throw err;
     }
   }

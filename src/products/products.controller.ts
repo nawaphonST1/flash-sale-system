@@ -1,17 +1,22 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { Product } from './entities/product.entity';
-import { PaginatedProductsResponse, ProductsService } from './products.service';
+import { ProductsService } from './products.service';
 
 @Controller('api/v1/products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  async findAll(@Query() query: PaginationQueryDto): Promise<PaginatedProductsResponse> {
+  async findAll(
+    @Query() query: PaginationQueryDto,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
-    return this.productsService.findAllPaginated(page, limit);
+    const jsonString = await this.productsService.findAllPaginatedRaw(page, limit);
+    reply.header('Content-Type', 'application/json; charset=utf-8').send(jsonString);
   }
 
   @Get(':id')

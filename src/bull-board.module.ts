@@ -1,16 +1,16 @@
 import { Injectable, Module, OnModuleInit } from '@nestjs/common';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
-import { ExpressAdapter } from '@bull-board/express';
+import { FastifyAdapter } from '@bull-board/fastify';
 import { OrdersModule } from './orders/orders.module';
 import { OrdersService } from './orders/orders.service';
 
 @Injectable()
 export class BullBoardService implements OnModuleInit {
-  private serverAdapter: ExpressAdapter;
+  private serverAdapter: FastifyAdapter;
 
   constructor(private readonly ordersService: OrdersService) {
-    this.serverAdapter = new ExpressAdapter();
+    this.serverAdapter = new FastifyAdapter();
     this.serverAdapter.setBasePath('/admin/queues');
   }
 
@@ -22,8 +22,8 @@ export class BullBoardService implements OnModuleInit {
     });
   }
 
-  getRouter() {
-    return this.serverAdapter.getRouter();
+  getServerAdapter(): FastifyAdapter {
+    return this.serverAdapter;
   }
 }
 

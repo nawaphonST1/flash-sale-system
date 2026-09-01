@@ -77,7 +77,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // 2. Atomic Lock + Stock Check + Decrement via single Redis Lua script (1 roundtrip)
+    // 2. Atomic Lock + Stock Check + Decrement via single Redis Lua script (1 roundtrip EVALSHA)
     let claimResult = await this.redisService.claimFlashSaleOrder(userId, productId, 600);
 
     if (claimResult === -2) {
@@ -89,33 +89,21 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (claimResult === -3) {
-      this.redisService.incrMetric('orders_duplicate');
       this.ordersCounter?.inc({ status: 'duplicate_request' });
-      this.logger.warn(`Duplicate or concurrent order rejected for user ${userId} on product ${productId}`);
       throw new ConflictException(
         `You have already submitted an order or have an active order for product '${productId}'. (Limit 1 per user)`,
       );
     }
 
     if (claimResult === -1 || claimResult < 0) {
-      this.redisService.incrMetric('orders_soldout');
       this.ordersCounter?.inc({ status: 'out_of_stock' });
       throw new ConflictException('Product sold out');
     }
 
-    this.redisService.incrMetric('orders_accepted');
     this.ordersCounter?.inc({ status: 'accepted' });
 
-    // 3. Generate deterministic order job ID & set status in Redis
+    // 3. Generate deterministic order job ID
     const orderJobId = `order:${userId}:${productId}`;
-    await this.redisService.setJobStatus(orderJobId, {
-      orderJobId,
-      userId,
-      productId,
-      status: 'processing',
-      message: 'Order request is queued for processing',
-      createdAt: new Date().toISOString(),
-    });
 
     // 4. Push job into designated Sharded Queue Lane
     const lane = this.getLaneIndex(userId);
